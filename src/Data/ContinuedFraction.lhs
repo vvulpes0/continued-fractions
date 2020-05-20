@@ -33,17 +33,31 @@
 
 > import Data.Ratio
 
+The empty continued fraction is infinity;
+even though it is not generally representable in other formats,
+we define here an integral and fractional infinity:
+
+> infinityF :: Fractional a => a
+> infinityF = 1 / 0
+> infinityI :: Integral a => a
+> infinityI = div 1 0
+
+Also, a few other functions for convenience:
+
+> frac :: (Real a, Fractional b) => a -> a -> b
+> frac a b = fromRational (toRational a / toRational b)
+
+> characteristic :: Num a => Bool -> a
+> characteristic b = if b then 1 else 0
+
+> square :: Num a => a -> a
+> square a = a ^ (2 :: Int)
+
 
 \section{Introduction}
 
 A regular continued fraction is a number represented in the form
-
-                  1
-    a_0 + ---------------
-                    1
-          a_1 + ---------
-                a_2 + ...
-
+\[a_0 + \frac{1}{a_1 + \frac{1}{a_2 + \cdots}}\]
 where \(\langle a_0, a_1, a_2, \ldots\rangle\) is a sequence of
 integers, all but the first of which are necessarily positive.
 The sequence is finite iff the represented number is rational.
@@ -53,7 +67,7 @@ we can represent continued fractions with a simple Haskell list.
 A better implementation might use
 a structure with detectable cycles
 in order to more easily work with irrationals
-such as the principal square root of 2, \(\langle 1, (2)\rangle\)
+such as the principal square root of 2: \(\langle 1, (2)\rangle\)
 (where parentheses indicate a cycle).
 
 > -- |Continued Fraction: a sequence of coefficients.
@@ -63,6 +77,9 @@ such as the principal square root of 2, \(\langle 1, (2)\rangle\)
 > -- |Unwrap a continued fraction.
 > cfContents :: CF a -> [a]
 > cfContents (CF x) = x
+
+> wrap :: ([a] -> [b]) -> CF a -> CF b
+> wrap f = CF . f . cfContents
 
 Truncating the sequence after \(n\) elements yields
 what is known as the \(n\)th convergent of the representation.
@@ -74,7 +91,7 @@ with denominator \(d\) or less.
 > -- |The element in a converging sequence of rationals
 > -- given by taking the first \(n\) coefficients of a representation.
 > convergent :: Int -> CF a -> CF a
-> convergent n = CF . take n . cfContents
+> convergent n = wrap (take n)
 
 The Haskell @Real@ typeclass provides a single function: @toRational@.
 We can turn a continued fraction representation of a number
@@ -83,14 +100,11 @@ Of course, it would be unwise to call @toRational@ on
 an argument whose representation is infinite.
 Necessary superclasses of this will be instantiated in a later section.
 
-> instance (Real a) => Real (CF a) where
->     toRational = cfrac' . cfContents
->         where cfrac' xs = case xs of
->                             [] -> 1 / 0
->                             (a:as) -> realToFrac a
->                                       + case as of
->                                           [] -> 0
->                                           _  -> 1 / cfrac' as
+> instance Real a => Real (CF a) where
+>     toRational x = evaluate (cfContents x)
+>         where evaluate []      =  infinityF
+>               evaluate (a:[])  =  realToFrac a
+>               evaluate (a:as)  =  realToFrac a + recip (evaluate as)
 
 The inverse translation is also often possible.
 Given any representation of a number,
@@ -98,17 +112,19 @@ a continued fraction can be formed.
 The result is only as precise as the input representation allows;
 so don't expect a perfect \(\langle 1,(2)\rangle\) sequence
 if you ask for @cfracOf (sqrt 2)@.
-With Float precision, the 11th convergent will already be incorrect.
-With Double, the 22nd.
+With @Float@ precision,
+the eleventh convergent will already be incorrect.
+With @Double@, the twenty-second.
 
 > -- |Construct a continued fraction
 > -- as accurately as possible from a given number.
 > -- @Rational@ numbers will be converted exactly.
+
 > cfracOf :: (RealFrac a, Num b) => a -> CF b
 > cfracOf x = CF $ fromIntegral fl :
 >             if fromIntegral fl == x
 >             then []
->             else cfContents (cfracOf (recip (x - fromIntegral fl)))
+>             else cfContents . cfracOf . recip $ x - fromIntegral fl
 >     where fl = floor x :: Integer
 
 
@@ -119,7 +135,7 @@ continued fractions are more expressive than rationals.
 They also have the nice property that representations
 are in one-to-one correspondence with represented objects,
 which is not the case with decimals (\(0.9999... = 1\)) or
-general rationals (\(\frac{2}{3} = \frac{6}{9}\)).
+general rationals (where \(\frac{2}{3} = \frac{6}{9}\), for example).
 Some operations are quite complicated, while others are trivial.
 
 
@@ -155,7 +171,7 @@ Comparing two equal infinite representations takes infinite time.
 \subsection{Linear fractional transformations}
 
 Bill Gosper presented algorithms for continued fraction arithmetic
-(\texttt{https://perl.plover.com/classes/cftalk/INFO/gosper.ps}).
+(\url{https://perl.plover.com/classes/cftalk/INFO/gosper.ps}).
 The simplest is applying a transformation of the form
 \(\frac{ax+b}{cx+d}\), a linear fractional transformation,
 with \(a, b, c, d\) all integers.
@@ -164,30 +180,29 @@ with \(a, b, c, d\) all integers.
 > -- \(\frac{ax + b}{cx + d}\).  The function is named for Bill Gosper,
 > -- who first dealt with continued fraction arithmetic.
 > gosper4 :: Real a => a -> a -> a -> a -> CF a -> CF a
-> gosper4 a b c d = CF . gosper4' a b c d . cfContents
+> gosper4 a b c d = wrap (gosper4' a b c d)
 
 > gosper4' :: Real a => a -> a -> a -> a -> [a] -> [a]
 > gosper4' a _ c _ []
 >     | c == 0     =  []
->     | otherwise  =  cfContents . fromRational
->                     $ toRational a / toRational c
+>     | otherwise  =  cfContents (frac a c)
 > gosper4' 0 b 0 d _ = gosper4' b 0 d 0 []
 > gosper4' a 0 c 0 (_:_:_) = gosper4' a 0 c 0 [] -- for any nonzero x
 > gosper4' a b c d (x:xs)
->     | a == 0 || b == 0 || c == 0 || d == 0 || mn /= mx
+>     | a == 0 || b == 0 || c == 0 || d == 0 || m /= n
 >         = gosper4' (x * a + b) a (x * c + d) c xs
->     | otherwise = mn : gosper4' c d (a - mn * c) (b - mn * d) (x:xs)
+>     | otherwise = m : gosper4' c d (a - m * c) (b - m * d) (x:xs)
 >     where (q1, b1) = ratio a c
 >           (q2, b2) = ratio b d
->           (mn, mx) = case compare q1 q2 of
->                        LT -> (q1, q2 - if b2 then 1 else 0)
->                        GT -> (q2, q1 - if b1 then 1 else 0)
->                        _  -> (q1, q2)
+>           (m, n) = case compare q1 q2 of
+>                      LT  ->  (q1, q2 - characteristic b2)
+>                      GT  ->  (q2, q1 - characteristic b1)
+>                      _   ->  (q1, q2)
 
 > -- |Returns the largest integer not greater than the input,
 > -- as well as whether the input was already an integer.
 > ratio :: Real a => a -> a -> (a, Bool)
-> ratio p q = let x = floor (toRational p / toRational q) :: Integer
+> ratio p q = let x = floor (frac p q) :: Integer
 >             in (fromIntegral x, p == q * fromIntegral x)
 
 An enhanced version of this algorithm computes a two-argument variant,
@@ -199,14 +214,13 @@ An enhanced version of this algorithm computes a two-argument variant,
 > gosper8 :: Real a
 >         => a -> a -> a -> a -> a -> a -> a -> a -> CF a -> CF a -> CF a
 > gosper8 a b c d e f g h (CF x) (CF y)
->     = CF $ gosper8' a b c d e f g h x y
+>     = CF (gosper8' a b c d e f g h x y)
 
 > gosper8' :: Real a
 >          => a -> a -> a -> a -> a -> a -> a -> a -> [a] -> [a] -> [a]
 > gosper8' a _ _ _ e _ _ _ [] []
 >     | e == 0     =  []
->     | otherwise  =  cfContents . fromRational
->                     $ toRational a / toRational e
+>     | otherwise  =  cfContents (frac a e)
 > gosper8' a b _ _ e f _ _ [] ys = gosper4' a b e f ys
 > gosper8' a _ c _ e _ g _ xs [] = gosper4' a c e g xs
 > gosper8' a b c d e f g h (x:xs) (y:ys)
@@ -216,17 +230,17 @@ An enhanced version of this algorithm computes a two-argument variant,
 >     | f == 0 = goY
 >     | g == 0 || h == 0 || e == 0 = goX
 >     | vb == vx && vx == vy && vy == vn
->         = mn : (gosper8' e f g h (m a e) (m b f) (m c g) (m d h)
->                 (x:xs) (y:ys))
+>         = n : gosper8' e f g h (m a e) (m b f) (m c g) (m d h)
+>               (x:xs) (y:ys)
 >     | vb == vy = goY
 >     | otherwise = goX
 >     where (qb, rb) = ratio a e
 >           (qx, rx) = ratio b f
 >           (qy, ry) = ratio c g
 >           (qn, rn) = ratio d h
->           mn = minimum [qb, qx, qy, qn]
->           m s t = s - mn * t
->           v q r = q - if q > mn && r then 1 else 0
+>           n = minimum [qb, qx, qy, qn]
+>           m s t = s - n * t
+>           v q r = q - characteristic (q > n && r)
 >           vb = v qb rb
 >           vx = v qx rx
 >           vy = v qy ry
@@ -255,24 +269,24 @@ This section covers the other reasonable numeric typeclasses.
 Using the transformation functions from the previous section,
 we can implement every function required of a @Num@ instance.
 
-> instance (Real a) => Num (CF a) where
+> instance Real a => Num (CF a) where
 >     (+) = gosper8 0 1   1  0 0 0 0 1
 >     (-) = gosper8 0 1 (-1) 0 0 0 0 1
 >     (*) = gosper8 1 0   0  0 0 0 0 1
->     negate x = gosper4 (-1) 0 0 1 x
->     signum (CF x) = case x of
->                       (a:_)  ->  CF [signum a]
->                       _      ->  CF []
+>     negate = gosper4 (-1) 0 0 1
+>     signum x = case x of
+>                  CF (a : _)  ->  CF [signum a]
+>                  _           ->  x
 >     abs x
 >         | cfContents (signum x) == [-1] = negate x
 >         | otherwise = x
->     fromInteger = CF . (:[]) . fromIntegral
+>     fromInteger x = CF [fromIntegral x]
 
 It wouldn't make sense to have continued fractions
 that aren't @Fractional@.
 Thankfully the functions there are also trivial to implement.
 
-> instance (Real a) => Fractional (CF a) where
+> instance Real a => Fractional (CF a) where
 >     (/) = gosper8 0 1 0 0 0 0 1 0
 >     recip x
 >         | x < 0 = gosper4 0 1 1 0 x
@@ -292,17 +306,16 @@ The @RealFrac@ instance is hampered by the requirement that
 @properFraction@ must output a pair where each value has the
 same sign as the input, but implementation is still rather easy.
 
-> instance (Real a) => RealFrac (CF a) where
+> instance Real a => RealFrac (CF a) where
 >     floor (CF xs) = case xs of
 >                       (x:_)  ->  floor (toRational x)
->                       _      ->  div 1 0
+>                       _      ->  infinityI
 >     ceiling x = case x of
 >                   CF (_:_:_)  ->  floor x + 1
 >                   _           ->  floor x
 >     truncate x = if x < 0 then ceiling x else floor x
->     properFraction x = ( truncate x
->                        , x - fromIntegral (truncate x :: Integer)
->                        )
+>     properFraction x = let t = truncate x
+>                        in (t, x - fromIntegral t)
 
 
 \section{Miscellaneous neat things}
@@ -334,12 +347,12 @@ with which to repeat the process.
 > -- |Produce a continued fraction for \(\frac{m\sqrt{x}+r}{d}\).
 > sqrti' :: Integral a => a -> a -> a -> a -> [a]
 > sqrti' m r d x
->     | (d*f - r)^(2::Int) == m^(2::Int) * x = [f]
+>     | square (d*f - r) == square m * x = [f]
 >     | otherwise  =  f : sqrti' (div m' g) (div r' g) (div d' g) x
 >     where f = ipartOfSqrt m r d x `asTypeOf` x
 >           m' = d * m
->           r' = -d * r + d^(2::Int) * f
->           d' = m^(2::Int) * x - (r - d * f)^(2::Int)
+>           r' = -d * r + square d * f
+>           d' = square m * x - square (r - d * f)
 >           g  = gcd d' $ gcd m' r'
 
 > -- |Binary search for floor of \(\frac{m\sqrt{x}+r}{d}\).
@@ -347,12 +360,12 @@ with which to repeat the process.
 > ipartOfSqrt :: (Real a, Integral b) => a -> a -> a -> a -> b
 > ipartOfSqrt m r d x = fromIntegral $ ipart' 0 (y + 1) (avg 0 y)
 >     where y = floor (toRational x) :: Integer
->           avg a b = floor $ toRational (a + b) / 2
+>           avg a b = floor (frac (a + b) 2)
 >           ipart' a b g
 >               | abs (a - b) <= 1 = g
 >               | otherwise = case compare
->                                  ((d * fromIntegral g - r)^(2::Int))
->                                  (m^(2::Int) * x) of
+>                                  (square (d * fromIntegral g - r))
+>                                  (square m * x) of
 >                               EQ -> g
 >                               LT -> ipart' g b (avg g b)
 >                               GT -> ipart' a g (avg a g)
@@ -377,13 +390,13 @@ we think should suffice.
 > convergents :: Real a => a -> a -> a -> a -> CF a -> [Rational]
 > convergents a _ c _ (CF [])
 >     | c == 0     =  []
->     | otherwise  =  [toRational a / toRational c]
+>     | otherwise  =  [frac a c]
 > convergents a b c d (CF (x:xs))
->     = f $ convergents (x * a + b) a (x * c + d) c (CF xs)
->     where f = if c /= 0 then (:) (toRational a / toRational c) else id
+>     = (if c /= 0 then (:) (frac a c) else id)
+>       $ convergents (x * a + b) a (x * c + d) c (CF xs)
 
 > findEq :: [Rational] -> Rational
-> findEq [] = 1 / 0
+> findEq [] = infinityF
 > findEq (x:[]) = x
 > findEq (x:y:xs)
 >     | realToFrac x == (realToFrac y :: Double) = x
