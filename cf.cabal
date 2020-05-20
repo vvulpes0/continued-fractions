@@ -1,0 +1,46 @@
+cabal-version:   >=1.10
+name:            ContinuedFraction
+-- PVP summary: +-+------- breaking API changes
+--              | | +----- non-breaking API additions
+--              | | | +--- code changes with no API change
+version:        0.1.0.0
+synopsis:       Arithmetic with continued fraction representations
+category:       Math
+description:    This package implements Bill Gosper's algorithms
+                for continued fraction arithmetic as well as some
+                other useful functions, including exact computation
+                of square roots without the use of floating-point
+                methods and associated loss of precision.
+                .
+                The continued fraction type exported has a @Num@
+                instance (among others) and works much like one
+                would expect, with the caveat that any operation
+                that would turn an irrational into a rational will
+                probably never halt.
+homepage:       https://github.com/vvulpes0/continued-fractions
+license:        MIT
+license-file:   LICENSE
+author:         Dakotah Lambert
+copyright:      (c) 2020 Dakotah Lambert
+maintainer:     49007668+vvulpes0@users.noreply.github.com
+tested-with:    GHC ==8.10.1
+build-type:     Simple
+
+source-repository head
+  type:      git
+  location:  https://github.com/vvulpes0/continued-fractions.git
+  branch:    master
+
+library
+  exposed-modules: Data.ContinuedFraction
+  build-depends: base >=4.2 && <4.15
+  hs-source-dirs: src
+  default-language: Haskell2010
+  ghc-options: -Weverything
+               -Wno-missing-exported-signatures
+               -Wno-implicit-prelude
+               -Wno-missing-import-lists
+               -Wno-missing-deriving-strategies
+               -Wno-missing-local-signatures
+               -Wno-type-defaults
+               -O2
