@@ -345,8 +345,8 @@ with which to repeat the process.
 > -- |Binary search for floor of \(\frac{m\sqrt{x}+r}{d}\).
 > -- This avoids floating point math and associated precision loss.
 > ipartOfSqrt :: (Real a, Integral b) => a -> a -> a -> a -> b
-> ipartOfSqrt m r d x = fromIntegral $ ipart' (-1) (y+1) (avg 0 y)
->     where y = floor (toRational x / 2) :: Int
+> ipartOfSqrt m r d x = fromIntegral $ ipart' 0 (y + 1) (avg 0 y)
+>     where y = floor (toRational x) :: Integer
 >           avg a b = floor $ toRational (a + b) / 2
 >           ipart' a b g
 >               | abs (a - b) <= 1 = g
